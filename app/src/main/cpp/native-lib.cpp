@@ -144,4 +144,26 @@ Java_com_example_sampleapp_NativeBridge_exportWavToFd(JNIEnv*, jobject, jint fd)
     return gEngine->exportWavFd((int) fd) ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_example_sampleapp_NativeBridge_saveCaptureToFd(JNIEnv*, jobject, jint fd) {
+    if (!gEngine) return JNI_FALSE;
+    return gEngine->saveCaptureToFd((int) fd) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_example_sampleapp_NativeBridge_loadWavFromFd(JNIEnv*, jobject, jint fd) {
+    if (!gEngine) return -1;
+    return (jint) gEngine->loadWavFd((int) fd);
+}
+
+JNIEXPORT void JNICALL
+Java_com_example_sampleapp_NativeBridge_setSelectedSample(JNIEnv*, jobject, jint sampleId) {
+    if (gEngine) gEngine->setSelectedSample((int) sampleId);
+}
+
+JNIEXPORT void JNICALL
+Java_com_example_sampleapp_NativeBridge_assignPadSample(JNIEnv*, jobject, jint pad, jint sampleId) {
+    if (gEngine) gEngine->assignPadSample((int) pad, (int) sampleId);
+}
+
 } // extern "C"

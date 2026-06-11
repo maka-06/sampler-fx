@@ -42,6 +42,14 @@ public:
 
     bool exportWav(const char* path);
     bool exportWavFd(int fd);
+    // Sauve la capture brute et complète (sans effets) vers un fd -> pour la bibliothèque.
+    bool saveCaptureToFd(int fd);
+    // Charge un WAV (mono 16-bit) depuis un fd dans le store. Renvoie le sampleId ou -1.
+    int loadWavFd(int fd);
+
+    // Pads / sélection
+    void setSelectedSample(int sampleId) { mSelectedSampleId = sampleId; }
+    void assignPadSample(int pad, int sampleId) { mStore->assignPad(pad, sampleId); }
 
     // Effets
     void setEffectEnabled(int effectId, bool enabled) { mChain.setEnabled(effectId, enabled); }
@@ -62,7 +70,9 @@ public:
 private:
     oboe::DataCallbackResult onRecord(void* audioData, int32_t numFrames);
     oboe::DataCallbackResult onPlay(oboe::AudioStream* stream, void* audioData, int32_t numFrames);
-    bool writeWav(FILE* f);
+    // Écrit un sample dans f puis ferme f. applyEffects : passe par la chaîne master.
+    // useTrim : limite à la région de trim, sinon le sample entier.
+    bool writeWav(FILE* f, int sampleId, bool applyEffects, bool useTrim);
 
     SampleBuffer* selectedSample() const;
     bool ensureOutputStream();

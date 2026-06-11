@@ -2,6 +2,7 @@
 #define SAMPLEAPP_SAMPLEBUFFER_H
 
 #include <atomic>
+#include <memory>
 #include <vector>
 #include <mutex>
 
@@ -10,6 +11,10 @@
 class SampleBuffer {
 public:
     explicit SampleBuffer(int maxSamples);
+
+    // Crée un sample dont la capacité = la taille exacte des données fournies
+    // (utilisé pour les samples chargés depuis un fichier, pour limiter la mémoire).
+    static std::shared_ptr<SampleBuffer> fromData(const std::vector<float>& data);
 
     void clear();
     // Appelé depuis le callback d'enregistrement (temps réel). Pas d'allocation.

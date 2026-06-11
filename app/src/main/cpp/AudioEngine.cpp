@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "WavIo.h"
 #include <android/log.h>
 #include <algorithm>
 #include <cstdio>
@@ -240,12 +241,12 @@ namespace {
     void writeU16(FILE* f, uint16_t v) { fwrite(&v, 2, 1, f); }
 }
 
-bool AudioEngine::writeWav(FILE* f) {
+bool AudioEngine::writeWav(FILE* f, int sampleId, bool applyEffects, bool useTrim) {
     if (!f) return false;
-    SampleBuffer* s = selectedSample();
+    SampleBuffer* s = mStore->get(sampleId);
     if (!s) { fclose(f); return false; }
-    int start = s->trimStart();
-    int end = s->trimEnd();
+    int start = useTrim ? s->trimStart() : 0;
+    int end = useTrim ? s->trimEnd() : s->length();
     int total = end - start;
     if (total <= 0) {
         fclose(f);
@@ -273,8 +274,8 @@ bool AudioEngine::writeWav(FILE* f) {
     fwrite("data", 1, 4, f);
     writeU32(f, dataBytes);
 
-    // Rendu par blocs à travers la chaîne d'effets live (reflète les réglages actuels)
-    mChain.reset();
+    // Rendu par blocs (avec ou sans effets)
+    if (applyEffects) mChain.reset();
     const int kBlock = 512;
     std::vector<float> block(kBlock);
     std::vector<int16_t> pcm(kBlock);
@@ -282,7 +283,7 @@ bool AudioEngine::writeWav(FILE* f) {
     while (pos < end) {
         int n = std::min(kBlock, end - pos);
         for (int i = 0; i < n; ++i) block[i] = s->at(pos + i);
-        mChain.process(block.data(), n);
+        if (applyEffects) mChain.process(block.data(), n);
         for (int i = 0; i < n; ++i) {
             float v = std::max(-1.0f, std::min(1.0f, block[i]));
             pcm[i] = (int16_t) std::lround(v * 32767.0f);
@@ -290,7 +291,7 @@ bool AudioEngine::writeWav(FILE* f) {
         fwrite(pcm.data(), sizeof(int16_t), n, f);
         pos += n;
     }
-    mChain.reset();
+    if (applyEffects) mChain.reset();
     fclose(f);
     return true;
 }
@@ -302,7 +303,7 @@ bool AudioEngine::exportWav(const char* path) {
         LOGE("Impossible d'ouvrir le fichier d'export: %s", path);
         return false;
     }
-    return writeWav(f);
+    return writeWav(f, mSelectedSampleId, true, true);
 }
 
 bool AudioEngine::exportWavFd(int fd) {
@@ -312,7 +313,29 @@ bool AudioEngine::exportWavFd(int fd) {
         LOGE("Impossible d'ouvrir le descripteur d'export (fd=%d)", fd);
         return false;
     }
-    return writeWav(f);
+    return writeWav(f, mSelectedSampleId, true, true);
+}
+
+bool AudioEngine::saveCaptureToFd(int fd) {
+    if (mRecording.load()) return false;
+    FILE* f = fdopen(fd, "wb");
+    if (!f) {
+        LOGE("Impossible d'ouvrir le descripteur de sauvegarde (fd=%d)", fd);
+        return false;
+    }
+    // Capture = sample id 0, brut (sans effets) et complet (sans trim).
+    return writeWav(f, 0, false, false);
+}
+
+int AudioEngine::loadWavFd(int fd) {
+    FILE* f = fdopen(fd, "rb");
+    if (!f) {
+        LOGE("Impossible d'ouvrir le descripteur de lecture (fd=%d)", fd);
+        return -1;
+    }
+    std::vector<float> data = WavIo::readWavMono16(f); // ferme f
+    if (data.empty()) return -1;
+    return mStore->addSample(SampleBuffer::fromData(data));
 }
 
 // ---------------------------------------------------------------------------

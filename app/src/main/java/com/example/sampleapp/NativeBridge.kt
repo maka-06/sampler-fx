@@ -43,4 +43,10 @@ object NativeBridge {
 
     external fun exportWav(path: String): Boolean
     external fun exportWavToFd(fd: Int): Boolean
+
+    // Bibliothèque / pads
+    external fun saveCaptureToFd(fd: Int): Boolean
+    external fun loadWavFromFd(fd: Int): Int
+    external fun setSelectedSample(sampleId: Int)
+    external fun assignPadSample(pad: Int, sampleId: Int)
 }

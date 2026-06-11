@@ -59,27 +59,17 @@ class MainActivity : ComponentActivity() {
                     }
 
                     SamplerScreen(
+                        controller = controller,
                         state = state,
                         micGranted = micGranted,
                         onRequestMic = {
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         },
-                        onToggleRecord = controller::toggleRecord,
-                        onTogglePlay = controller::togglePlay,
-                        onToggleLoop = controller::setLoop,
-                        onReverse = controller::reverse,
-                        onNormalize = controller::normalize,
-                        onTrimChange = controller::setTrim,
-                        onEffectEnabled = controller::setEffectEnabled,
-                        onParamChange = controller::setEffectParam,
                         onExport = {
                             if (controller.hasSample()) {
                                 createDocLauncher.launch(controller.suggestedFileName())
                             }
                         },
-                        onSavePreset = controller::savePreset,
-                        onLoadPreset = controller::loadPreset,
-                        onDeletePreset = controller::deletePreset,
                         onMessageShown = controller::consumeMessage
                     )
                 }

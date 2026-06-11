@@ -32,11 +32,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,12 +48,98 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.sampleapp.audio.AudioController
 import com.example.sampleapp.audio.EFFECT_CATALOG
 import com.example.sampleapp.audio.UiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SamplerScreen(
+    controller: AudioController,
+    state: UiState,
+    micGranted: Boolean,
+    onRequestMic: () -> Unit,
+    onExport: () -> Unit,
+    onMessageShown: () -> Unit
+) {
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(state.message) {
+        state.message?.let {
+            snackbar.showSnackbar(it)
+            onMessageShown()
+        }
+    }
+
+    var tab by remember { mutableIntStateOf(0) }
+    val tabs = listOf("Pads", "Bibliothèque", "Édition")
+
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Sampler FX") }) },
+        snackbarHost = { SnackbarHost(snackbar) }
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            TabRow(selectedTabIndex = tab) {
+                tabs.forEachIndexed { i, title ->
+                    Tab(selected = tab == i, onClick = { tab = i }, text = { Text(title) })
+                }
+            }
+            when (tab) {
+                0 -> PadGrid(
+                    pads = state.pads,
+                    selectedPad = state.selectedPad,
+                    library = state.library,
+                    onPlayPad = controller::playPad,
+                    onReleasePad = controller::releasePad,
+                    onSelectPad = controller::selectPad,
+                    onSetMode = controller::setPadMode,
+                    onAssign = controller::assignToPad,
+                    onClear = controller::clearPad
+                )
+                1 -> LibraryScreen(
+                    library = state.library,
+                    padCount = state.pads.size,
+                    onAddCategory = controller::addCategory,
+                    onRenameCategory = controller::renameCategory,
+                    onDeleteCategory = controller::deleteCategory,
+                    onRenameSample = controller::renameSample,
+                    onDeleteSample = controller::deleteSample,
+                    onMoveSample = controller::moveSample,
+                    onPreview = controller::previewSample,
+                    onAssignToPad = { pad, id -> controller.assignToPad(pad, id) }
+                )
+                else -> EditTab(
+                    state = state,
+                    micGranted = micGranted,
+                    onRequestMic = onRequestMic,
+                    onToggleRecord = controller::toggleRecord,
+                    onTogglePlay = controller::togglePlay,
+                    onToggleLoop = controller::setLoop,
+                    onReverse = controller::reverse,
+                    onNormalize = controller::normalize,
+                    onTrimChange = controller::setTrim,
+                    onEffectEnabled = controller::setEffectEnabled,
+                    onParamChange = controller::setEffectParam,
+                    onExport = onExport,
+                    onSavePreset = controller::savePreset,
+                    onLoadPreset = controller::loadPreset,
+                    onDeletePreset = controller::deletePreset
+                )
+            }
+        }
+    }
+
+    if (state.pendingSaveDuration != null) {
+        SaveToLibraryDialog(
+            durationSec = state.pendingSaveDuration,
+            categories = state.library.categories,
+            onConfirm = { name, category -> controller.saveRecordingToLibrary(name, category) },
+            onDismiss = controller::dismissSaveDialog
+        )
+    }
+}
+
+@Composable
+private fun EditTab(
     state: UiState,
     micGranted: Boolean,
     onRequestMic: () -> Unit,
@@ -65,115 +154,100 @@ fun SamplerScreen(
     onExport: () -> Unit,
     onSavePreset: (String) -> Unit,
     onLoadPreset: (String) -> Unit,
-    onDeletePreset: (String) -> Unit,
-    onMessageShown: () -> Unit
+    onDeletePreset: (String) -> Unit
 ) {
-    val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(state.message) {
-        state.message?.let {
-            snackbar.showSnackbar(it)
-            onMessageShown()
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            TransportBar(
+                state = state,
+                micGranted = micGranted,
+                onRequestMic = onRequestMic,
+                onToggleRecord = onToggleRecord,
+                onTogglePlay = onTogglePlay,
+                onToggleLoop = onToggleLoop
+            )
         }
-    }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Sampler FX") }) },
-        snackbarHost = { SnackbarHost(snackbar) }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                TransportBar(
-                    state = state,
-                    micGranted = micGranted,
-                    onRequestMic = onRequestMic,
-                    onToggleRecord = onToggleRecord,
-                    onTogglePlay = onTogglePlay,
-                    onToggleLoop = onToggleLoop
-                )
-            }
-
-            item {
-                if (state.hasSample) {
-                    WaveformView(
-                        waveform = state.waveform,
-                        playHeadFraction = state.playHeadFraction,
-                        trimStart = state.trimStart,
-                        trimEnd = state.trimEnd,
-                        onTrimChange = onTrimChange
-                    )
-                    Text(
-                        "Durée : ${"%.2f".format(state.durationSec)} s · " +
-                                "${state.sampleRate} Hz · glisse pour rogner",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(160.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "Appuie sur le bouton rouge pour enregistrer un son.",
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
-                    }
-                }
-            }
-
+        item {
             if (state.hasSample) {
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onReverse) {
-                            Icon(Icons.Default.SwapHoriz, null)
-                            Spacer(Modifier.size(4.dp))
-                            Text("Reverse")
-                        }
-                        OutlinedButton(onClick = onNormalize) {
-                            Icon(Icons.Default.GraphicEq, null)
-                            Spacer(Modifier.size(4.dp))
-                            Text("Normaliser")
-                        }
-                        Button(onClick = onExport) { Text("Export WAV") }
-                    }
-                }
-            }
-
-            item {
-                Text(
-                    "Chaîne d'effets",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 8.dp)
+                WaveformView(
+                    waveform = state.waveform,
+                    playHeadFraction = state.playHeadFraction,
+                    trimStart = state.trimStart,
+                    trimEnd = state.trimEnd,
+                    onTrimChange = onTrimChange
                 )
-            }
-
-            items(EFFECT_CATALOG, key = { it.effectId }) { spec ->
-                val fx = state.effects[spec.effectId]
-                if (fx != null) {
-                    EffectPedal(
-                        spec = spec,
-                        state = fx,
-                        onEnabledChange = { onEffectEnabled(spec.effectId, it) },
-                        onParamChange = { pid, v -> onParamChange(spec.effectId, pid, v) }
+                Text(
+                    "Durée : ${"%.2f".format(state.durationSec)} s · " +
+                            "${state.sampleRate} Hz · glisse pour rogner",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(160.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Enregistre un son ou sélectionne un pad pour l'éditer.",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
             }
+        }
 
+        if (state.hasSample) {
             item {
-                PresetSection(
-                    presetNames = state.presetNames,
-                    onSave = onSavePreset,
-                    onLoad = onLoadPreset,
-                    onDelete = onDeletePreset
-                )
-                Spacer(Modifier.height(24.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onReverse) {
+                        Icon(Icons.Default.SwapHoriz, null)
+                        Spacer(Modifier.size(4.dp))
+                        Text("Reverse")
+                    }
+                    OutlinedButton(onClick = onNormalize) {
+                        Icon(Icons.Default.GraphicEq, null)
+                        Spacer(Modifier.size(4.dp))
+                        Text("Normaliser")
+                    }
+                    Button(onClick = onExport) { Text("Export WAV") }
+                }
             }
+        }
+
+        item {
+            Text(
+                "Chaîne d'effets",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+
+        items(EFFECT_CATALOG, key = { it.effectId }) { spec ->
+            val fx = state.effects[spec.effectId]
+            if (fx != null) {
+                EffectPedal(
+                    spec = spec,
+                    state = fx,
+                    onEnabledChange = { onEffectEnabled(spec.effectId, it) },
+                    onParamChange = { pid, v -> onParamChange(spec.effectId, pid, v) }
+                )
+            }
+        }
+
+        item {
+            PresetSection(
+                presetNames = state.presetNames,
+                onSave = onSavePreset,
+                onLoad = onLoadPreset,
+                onDelete = onDeletePreset
+            )
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
@@ -196,7 +270,7 @@ private fun TransportBar(
             onClick = { if (micGranted) onToggleRecord() else onRequestMic() },
             modifier = Modifier.size(64.dp),
             colors = IconButtonDefaults.iconButtonColors(
-                contentColor = if (state.isRecording) Color(0xFFFF5252) else Color(0xFFFF5252)
+                contentColor = Color(0xFFFF5252)
             )
         ) {
             Icon(

@@ -6,6 +6,16 @@ SampleBuffer::SampleBuffer(int maxSamples) {
     mData.assign((size_t) maxSamples, 0.0f);
 }
 
+std::shared_ptr<SampleBuffer> SampleBuffer::fromData(const std::vector<float>& data) {
+    int n = (int) data.size();
+    auto sb = std::make_shared<SampleBuffer>(std::max(1, n));
+    for (int i = 0; i < n; ++i) sb->mData[i] = data[i];
+    sb->mLength.store(n);
+    sb->mTrimStart.store(0);
+    sb->mTrimEnd.store(n);
+    return sb;
+}
+
 void SampleBuffer::clear() {
     std::lock_guard<std::mutex> lock(mEditMutex);
     mLength.store(0);

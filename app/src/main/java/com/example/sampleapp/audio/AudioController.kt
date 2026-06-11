@@ -1,6 +1,7 @@
 package com.example.sampleapp.audio
 
 import android.app.Application
+import android.os.ParcelFileDescriptor
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.sampleapp.NativeBridge
@@ -17,6 +18,23 @@ import java.util.Locale
 
 data class FxState(val enabled: Boolean, val params: Map<Int, Float>)
 
+object Trigger {
+    const val ONESHOT = 0
+    const val GATE = 1
+    const val LOOP = 2
+}
+
+const val NUM_PADS = 16
+
+data class PadState(
+    val index: Int,
+    val librarySampleId: String? = null,
+    val name: String? = null,
+    val triggerMode: Int = Trigger.ONESHOT
+) {
+    val hasSample: Boolean get() = librarySampleId != null
+}
+
 data class UiState(
     val isRecording: Boolean = false,
     val isPlaying: Boolean = false,
@@ -30,6 +48,10 @@ data class UiState(
     val trimEnd: Float = 1f,
     val effects: Map<Int, FxState> = emptyMap(),
     val presetNames: List<String> = emptyList(),
+    val library: Library = Library(),
+    val pads: List<PadState> = (0 until NUM_PADS).map { PadState(it) },
+    val selectedPad: Int = 0,
+    val pendingSaveDuration: Float? = null, // != null -> proposer la sauvegarde de l'enregistrement
     val message: String? = null
 )
 
@@ -39,7 +61,11 @@ class AudioController(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val presetManager = PresetManager(app)
+    private val libraryManager = LibraryManager(app)
     private var pollJob: Job? = null
+
+    // Cache : id de sample de bibliothèque -> id natif chargé dans le moteur
+    private val loadedSampleIds = mutableMapOf<String, Int>()
 
     init {
         NativeBridge.nativeInit()
@@ -53,7 +79,8 @@ class AudioController(app: Application) : AndroidViewModel(app) {
         _state.update {
             it.copy(
                 sampleRate = NativeBridge.getSampleRate(),
-                presetNames = presetManager.load().map { p -> p.name }
+                presetNames = presetManager.load().map { p -> p.name },
+                library = libraryManager.load()
             )
         }
     }
@@ -74,7 +101,14 @@ class AudioController(app: Application) : AndroidViewModel(app) {
         if (_state.value.isRecording) {
             NativeBridge.stopRecording()
             refreshSampleInfo()
-            _state.update { it.copy(isRecording = false, message = "Sample enregistré") }
+            val dur = _state.value.durationSec
+            _state.update {
+                it.copy(
+                    isRecording = false,
+                    pendingSaveDuration = if (dur > 0f) dur else null,
+                    message = "Sample enregistré"
+                )
+            }
         } else {
             stopPolling()
             if (NativeBridge.startRecording()) {
@@ -196,6 +230,168 @@ class AudioController(app: Application) : AndroidViewModel(app) {
         _state.update {
             it.copy(message = if (ok) "Fichier WAV exporté" else "Échec de l'export")
         }
+    }
+
+    // --- Bibliothèque -------------------------------------------------------------
+
+    /** Annule la proposition de sauvegarde après enregistrement. */
+    fun dismissSaveDialog() = _state.update { it.copy(pendingSaveDuration = null) }
+
+    /** Sauve la capture courante (id natif 0) dans la bibliothèque. */
+    fun saveRecordingToLibrary(name: String, category: String) {
+        val duration = _state.value.pendingSaveDuration ?: _state.value.durationSec
+        val (id, file) = libraryManager.newSampleFile()
+        val ok = runCatching {
+            val pfd = ParcelFileDescriptor.open(
+                file,
+                ParcelFileDescriptor.MODE_CREATE or
+                    ParcelFileDescriptor.MODE_WRITE_ONLY or
+                    ParcelFileDescriptor.MODE_TRUNCATE
+            )
+            NativeBridge.saveCaptureToFd(pfd.detachFd())
+        }.getOrDefault(false)
+
+        if (!ok) {
+            file.delete()
+            _state.update { it.copy(pendingSaveDuration = null, message = "Échec de la sauvegarde") }
+            return
+        }
+        val finalName = name.ifBlank { "Sample" }
+        val finalCat = category.ifBlank { "Défaut" }
+        val lib = libraryManager.commitSample(id, finalName, finalCat, duration)
+        _state.update {
+            it.copy(library = lib, pendingSaveDuration = null, message = "Ajouté à la bibliothèque")
+        }
+    }
+
+    fun addCategory(name: String) {
+        if (name.isBlank()) return
+        _state.update { it.copy(library = libraryManager.addCategory(name.trim())) }
+    }
+
+    fun renameCategory(oldName: String, newName: String) {
+        if (newName.isBlank()) return
+        _state.update { it.copy(library = libraryManager.renameCategory(oldName, newName.trim())) }
+    }
+
+    fun deleteCategory(name: String) {
+        _state.update { it.copy(library = libraryManager.deleteCategory(name)) }
+    }
+
+    fun deleteSample(id: String) {
+        val lib = libraryManager.deleteSample(id)
+        loadedSampleIds.remove(id)
+        // Retire ce sample des pads qui le référençaient
+        val pads = _state.value.pads.map {
+            if (it.librarySampleId == id) {
+                NativeBridge.assignPadSample(it.index, -1)
+                it.copy(librarySampleId = null, name = null)
+            } else it
+        }
+        _state.update { it.copy(library = lib, pads = pads) }
+    }
+
+    fun moveSample(id: String, category: String) {
+        _state.update { it.copy(library = libraryManager.moveSample(id, category)) }
+    }
+
+    fun renameSample(id: String, name: String) {
+        if (name.isBlank()) return
+        val lib = libraryManager.renameSample(id, name.trim())
+        val pads = _state.value.pads.map {
+            if (it.librarySampleId == id) it.copy(name = name.trim()) else it
+        }
+        _state.update { it.copy(library = lib, pads = pads) }
+    }
+
+    /** Joue un sample de la bibliothèque en aperçu (le charge si besoin, sans toucher aux pads). */
+    fun previewSample(librarySampleId: String) {
+        val nativeId = ensureLoaded(librarySampleId) ?: run {
+            _state.update { it.copy(message = "Sample introuvable") }
+            return
+        }
+        NativeBridge.setSelectedSample(nativeId)
+        NativeBridge.startPlayback()
+        _state.update { it.copy(isPlaying = true) }
+        startPolling()
+    }
+
+    // --- Pads ---------------------------------------------------------------------
+
+    fun assignToPad(pad: Int, librarySampleId: String) {
+        val nativeId = ensureLoaded(librarySampleId) ?: run {
+            _state.update { it.copy(message = "Échec du chargement du sample") }
+            return
+        }
+        NativeBridge.assignPadSample(pad, nativeId)
+        val sample = _state.value.library.samples.firstOrNull { it.id == librarySampleId }
+        val pads = _state.value.pads.map {
+            if (it.index == pad) it.copy(librarySampleId = librarySampleId, name = sample?.name) else it
+        }
+        _state.update { it.copy(pads = pads, message = "Assigné au pad ${pad + 1}") }
+    }
+
+    fun clearPad(pad: Int) {
+        NativeBridge.assignPadSample(pad, -1)
+        val pads = _state.value.pads.map {
+            if (it.index == pad) it.copy(librarySampleId = null, name = null) else it
+        }
+        _state.update { it.copy(pads = pads) }
+    }
+
+    fun setPadMode(pad: Int, mode: Int) {
+        val pads = _state.value.pads.map {
+            if (it.index == pad) it.copy(triggerMode = mode) else it
+        }
+        _state.update { it.copy(pads = pads) }
+    }
+
+    /** Déclenche un pad (NOTE_ON) et le sélectionne pour l'édition. */
+    fun playPad(pad: Int) {
+        val padState = _state.value.pads.getOrNull(pad) ?: return
+        selectPad(pad)
+        if (!padState.hasSample) return
+        NativeBridge.triggerPad(pad, 1f, 1f, padState.triggerMode)
+        _state.update { it.copy(isPlaying = true) }
+        startPolling()
+    }
+
+    /** Relâche un pad (NOTE_OFF) - utile en mode gate. */
+    fun releasePad(pad: Int) {
+        NativeBridge.releasePad(pad)
+    }
+
+    /** Sélectionne un pad : l'édition (waveform/trim/effets/export) cible ce sample. */
+    fun selectPad(pad: Int) {
+        val padState = _state.value.pads.getOrNull(pad) ?: return
+        _state.update { it.copy(selectedPad = pad) }
+        val libId = padState.librarySampleId
+        if (libId != null) {
+            val nativeId = loadedSampleIds[libId]
+            if (nativeId != null) {
+                NativeBridge.setSelectedSample(nativeId)
+                refreshSampleInfo()
+            }
+        } else {
+            _state.update {
+                it.copy(hasSample = false, durationSec = 0f, waveform = emptyList(), playHeadFraction = 0f)
+            }
+        }
+    }
+
+    /** Charge le WAV du sample dans le moteur si nécessaire ; renvoie l'id natif. */
+    private fun ensureLoaded(librarySampleId: String): Int? {
+        loadedSampleIds[librarySampleId]?.let { return it }
+        val sample = _state.value.library.samples.firstOrNull { it.id == librarySampleId } ?: return null
+        val file = libraryManager.fileFor(sample)
+        if (!file.exists()) return null
+        val nativeId = runCatching {
+            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            NativeBridge.loadWavFromFd(pfd.detachFd())
+        }.getOrDefault(-1)
+        if (nativeId < 0) return null
+        loadedSampleIds[librarySampleId] = nativeId
+        return nativeId
     }
 
     // --- Divers -------------------------------------------------------------------
