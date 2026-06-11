@@ -1,0 +1,9 @@
+* text=auto
+
+# Le script gradlew doit rester en LF pour s'exécuter sous Linux (CI)
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Scripts et binaires Windows
+gradlew.bat text eol=crlf
+*.jar binary
