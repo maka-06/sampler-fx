@@ -18,6 +18,8 @@ public:
     int length() const { return mLength.load(); }
     int capacity() const { return (int) mData.size(); }
     float at(int idx) const { return mData[idx]; }
+    // Lecture à position fractionnaire (interpolation linéaire) pour le pitch.
+    float atInterp(double pos) const;
 
     // Région de lecture
     int trimStart() const { return mTrimStart.load(); }

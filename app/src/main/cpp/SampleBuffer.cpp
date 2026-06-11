@@ -26,6 +26,16 @@ void SampleBuffer::appendRealtime(const float* src, int numFrames) {
     mTrimEnd.store(newLen);
 }
 
+float SampleBuffer::atInterp(double pos) const {
+    int len = mLength.load();
+    if (len <= 0) return 0.0f;
+    if (pos < 0) pos = 0;
+    int i0 = (int) pos;
+    if (i0 >= len - 1) return mData[len - 1];
+    float frac = (float) (pos - (double) i0);
+    return mData[i0] * (1.0f - frac) + mData[i0 + 1] * frac;
+}
+
 void SampleBuffer::setTrim(int start, int end) {
     int len = mLength.load();
     start = std::max(0, std::min(start, len));

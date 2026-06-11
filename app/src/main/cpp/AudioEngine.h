@@ -4,9 +4,13 @@
 #include <oboe/Oboe.h>
 #include <memory>
 #include <atomic>
+#include <array>
 #include <vector>
 #include <cstdio>
 #include "SampleBuffer.h"
+#include "SampleStore.h"
+#include "Voice.h"
+#include "LockFreeQueue.h"
 #include "effects/EffectChain.h"
 
 class AudioEngine : public oboe::AudioStreamDataCallback,
@@ -17,23 +21,26 @@ public:
 
     bool startRecording();
     void stopRecording();
+    // Lecture du sample sélectionné via une voix (suit le flag loop global).
     bool startPlayback();
     void stopPlayback();
+
+    // Déclenchement polyphonique (pads / clavier).
+    void triggerPad(int padId, float pitchRatio, float gain, int triggerMode);
+    void releasePad(int padId);
 
     void setLoop(bool loop) { mLoop.store(loop); }
     bool isRecording() const { return mRecording.load(); }
     bool isPlaying() const { return mPlaying.load(); }
 
-    // Édition du sample
+    // Édition du sample sélectionné
     void clearSample();
     void reverseSample();
     void normalizeSample();
     void setTrim(int start, int end);
     void resetTrim();
 
-    // Rend la région courante à travers la chaîne d'effets et l'écrit en WAV 16-bit.
     bool exportWav(const char* path);
-    // Variante écrivant dans un descripteur de fichier (transféré, fermé par le moteur).
     bool exportWavFd(int fd);
 
     // Effets
@@ -41,11 +48,11 @@ public:
     void setEffectParam(int effectId, int paramId, float value) { mChain.setParam(effectId, paramId, value); }
 
     // Infos / accès
-    int getSampleLength() const { return mSample->length(); }
+    int getSampleLength() const;
     int getSampleRate() const { return mSampleRate; }
-    int getPlayHead() const { return mPlayHead.load(); }
-    std::vector<float> getWaveform(int numPoints) const { return mSample->getWaveform(numPoints); }
-    SampleBuffer* sample() { return mSample.get(); }
+    int getPlayHead() const { return mPrimaryReadPos.load(); }
+    int getSampleCount() const { return mStore->sampleCount(); }
+    std::vector<float> getWaveform(int numPoints) const;
 
     // Callbacks Oboe
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream, void* audioData,
@@ -55,24 +62,35 @@ public:
 private:
     oboe::DataCallbackResult onRecord(void* audioData, int32_t numFrames);
     oboe::DataCallbackResult onPlay(oboe::AudioStream* stream, void* audioData, int32_t numFrames);
-    // Écrit la région courante (avec effets) dans f puis ferme f. Renvoie le succès.
     bool writeWav(FILE* f);
 
+    SampleBuffer* selectedSample() const;
+    bool ensureOutputStream();
+    void processEvents();
+    int allocateVoice(); // renvoie l'index d'une voix libre ou volée
+
     static constexpr int kMaxSeconds = 60;
+    static constexpr int kNumVoices = 16;
     int mSampleRate = 48000;
 
     std::shared_ptr<oboe::AudioStream> mInputStream;
     std::shared_ptr<oboe::AudioStream> mOutputStream;
 
-    std::unique_ptr<SampleBuffer> mSample;
+    std::unique_ptr<SampleStore> mStore;
+    int mSelectedSampleId = 0;
     EffectChain mChain;
 
-    std::atomic<bool> mRecording{false};
-    std::atomic<bool> mPlaying{false};
-    std::atomic<bool> mLoop{false};
-    std::atomic<int> mPlayHead{0};
+    std::array<Voice, kNumVoices> mVoices;
+    LockFreeQueue<NoteEvent, 64> mEvents;
+    uint64_t mOrderCounter = 0;
 
-    std::vector<float> mScratch; // bloc mono temporaire pour la lecture
+    std::atomic<bool> mRecording{false};
+    std::atomic<bool> mLoop{false};
+    std::atomic<bool> mPlaying{false};
+    std::atomic<int> mActiveVoices{0};
+    std::atomic<int> mPrimaryReadPos{0};
+
+    std::vector<float> mScratch; // bloc mono temporaire pour le mixage
 };
 
 #endif // SAMPLEAPP_AUDIOENGINE_H

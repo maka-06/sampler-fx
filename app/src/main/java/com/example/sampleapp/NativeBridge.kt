@@ -22,6 +22,11 @@ object NativeBridge {
     external fun isRecording(): Boolean
     external fun isPlaying(): Boolean
 
+    // Déclenchement polyphonique (pads / clavier). triggerMode: 0=one-shot, 1=gate, 2=loop
+    external fun triggerPad(padId: Int, pitchRatio: Float, gain: Float, triggerMode: Int)
+    external fun releasePad(padId: Int)
+    external fun getSampleCount(): Int
+
     external fun clearSample()
     external fun reverseSample()
     external fun normalizeSample()

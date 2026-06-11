@@ -42,6 +42,22 @@ Java_com_example_sampleapp_NativeBridge_setLoop(JNIEnv*, jobject, jboolean loop)
     if (gEngine) gEngine->setLoop(loop == JNI_TRUE);
 }
 
+JNIEXPORT void JNICALL
+Java_com_example_sampleapp_NativeBridge_triggerPad(JNIEnv*, jobject, jint padId,
+                                                   jfloat pitchRatio, jfloat gain, jint triggerMode) {
+    if (gEngine) gEngine->triggerPad(padId, pitchRatio, gain, triggerMode);
+}
+
+JNIEXPORT void JNICALL
+Java_com_example_sampleapp_NativeBridge_releasePad(JNIEnv*, jobject, jint padId) {
+    if (gEngine) gEngine->releasePad(padId);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_example_sampleapp_NativeBridge_getSampleCount(JNIEnv*, jobject) {
+    return gEngine ? gEngine->getSampleCount() : 0;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_example_sampleapp_NativeBridge_isRecording(JNIEnv*, jobject) {
     return gEngine && gEngine->isRecording() ? JNI_TRUE : JNI_FALSE;
