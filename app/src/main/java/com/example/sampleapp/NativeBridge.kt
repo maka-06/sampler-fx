@@ -37,4 +37,5 @@ object NativeBridge {
     external fun getWaveform(numPoints: Int): FloatArray
 
     external fun exportWav(path: String): Boolean
+    external fun exportWavToFd(fd: Int): Boolean
 }

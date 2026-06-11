@@ -5,6 +5,7 @@
 #include <memory>
 #include <atomic>
 #include <vector>
+#include <cstdio>
 #include "SampleBuffer.h"
 #include "effects/EffectChain.h"
 
@@ -32,6 +33,8 @@ public:
 
     // Rend la région courante à travers la chaîne d'effets et l'écrit en WAV 16-bit.
     bool exportWav(const char* path);
+    // Variante écrivant dans un descripteur de fichier (transféré, fermé par le moteur).
+    bool exportWavFd(int fd);
 
     // Effets
     void setEffectEnabled(int effectId, bool enabled) { mChain.setEnabled(effectId, enabled); }
@@ -52,6 +55,8 @@ public:
 private:
     oboe::DataCallbackResult onRecord(void* audioData, int32_t numFrames);
     oboe::DataCallbackResult onPlay(oboe::AudioStream* stream, void* audioData, int32_t numFrames);
+    // Écrit la région courante (avec effets) dans f puis ferme f. Renvoie le succès.
+    bool writeWav(FILE* f);
 
     static constexpr int kMaxSeconds = 60;
     int mSampleRate = 48000;

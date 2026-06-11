@@ -48,6 +48,16 @@ class MainActivity : ComponentActivity() {
                         if (granted) controller.toggleRecord()
                     }
 
+                    val createDocLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                        ActivityResultContracts.CreateDocument("audio/x-wav")
+                    ) { uri ->
+                        if (uri != null) {
+                            context.contentResolver.openFileDescriptor(uri, "w")?.let { pfd ->
+                                controller.exportToFd(pfd.detachFd())
+                            }
+                        }
+                    }
+
                     SamplerScreen(
                         state = state,
                         micGranted = micGranted,
@@ -62,7 +72,11 @@ class MainActivity : ComponentActivity() {
                         onTrimChange = controller::setTrim,
                         onEffectEnabled = controller::setEffectEnabled,
                         onParamChange = controller::setEffectParam,
-                        onExport = controller::exportWav,
+                        onExport = {
+                            if (controller.hasSample()) {
+                                createDocLauncher.launch(controller.suggestedFileName())
+                            }
+                        },
                         onSavePreset = controller::savePreset,
                         onLoadPreset = controller::loadPreset,
                         onDeletePreset = controller::deletePreset,

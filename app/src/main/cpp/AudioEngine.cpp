@@ -119,16 +119,13 @@ namespace {
     void writeU16(FILE* f, uint16_t v) { fwrite(&v, 2, 1, f); }
 }
 
-bool AudioEngine::exportWav(const char* path) {
-    if (mPlaying.load() || mRecording.load()) return false;
+bool AudioEngine::writeWav(FILE* f) {
+    if (!f) return false;
     int start = mSample->trimStart();
     int end = mSample->trimEnd();
     int total = end - start;
-    if (total <= 0) return false;
-
-    FILE* f = fopen(path, "wb");
-    if (!f) {
-        LOGE("Impossible d'ouvrir le fichier d'export: %s", path);
+    if (total <= 0) {
+        fclose(f);
         return false;
     }
 
@@ -173,6 +170,26 @@ bool AudioEngine::exportWav(const char* path) {
     mChain.reset();
     fclose(f);
     return true;
+}
+
+bool AudioEngine::exportWav(const char* path) {
+    if (mPlaying.load() || mRecording.load()) return false;
+    FILE* f = fopen(path, "wb");
+    if (!f) {
+        LOGE("Impossible d'ouvrir le fichier d'export: %s", path);
+        return false;
+    }
+    return writeWav(f);
+}
+
+bool AudioEngine::exportWavFd(int fd) {
+    if (mPlaying.load() || mRecording.load()) return false;
+    FILE* f = fdopen(fd, "wb");
+    if (!f) {
+        LOGE("Impossible d'ouvrir le descripteur d'export (fd=%d)", fd);
+        return false;
+    }
+    return writeWav(f);
 }
 
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream* stream, void* audioData,

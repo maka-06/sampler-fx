@@ -1,7 +1,6 @@
 package com.example.sampleapp.audio
 
 import android.app.Application
-import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.sampleapp.NativeBridge
@@ -12,7 +11,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -180,19 +178,23 @@ class AudioController(app: Application) : AndroidViewModel(app) {
 
     // --- Export -------------------------------------------------------------------
 
-    fun exportWav() {
+    /** Nom de fichier suggéré pour le sélecteur système. */
+    fun suggestedFileName(): String {
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        return "sample_$stamp.wav"
+    }
+
+    fun hasSample(): Boolean = _state.value.hasSample
+
+    /** Écrit le rendu (sample + effets) dans le descripteur fourni par le sélecteur SAF. */
+    fun exportToFd(fd: Int) {
         if (!_state.value.hasSample) {
             _state.update { it.copy(message = "Rien à exporter") }
             return
         }
-        val dir = getApplication<Application>()
-            .getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: getApplication<Application>().filesDir
-        if (!dir.exists()) dir.mkdirs()
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val out = File(dir, "sample_$stamp.wav")
-        val ok = NativeBridge.exportWav(out.absolutePath)
+        val ok = NativeBridge.exportWavToFd(fd)
         _state.update {
-            it.copy(message = if (ok) "Exporté : ${out.absolutePath}" else "Échec de l'export")
+            it.copy(message = if (ok) "Fichier WAV exporté" else "Échec de l'export")
         }
     }
 

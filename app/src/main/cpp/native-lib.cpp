@@ -122,4 +122,10 @@ Java_com_example_sampleapp_NativeBridge_exportWav(JNIEnv* env, jobject, jstring 
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_example_sampleapp_NativeBridge_exportWavToFd(JNIEnv*, jobject, jint fd) {
+    if (!gEngine) return JNI_FALSE;
+    return gEngine->exportWavFd((int) fd) ? JNI_TRUE : JNI_FALSE;
+}
+
 } // extern "C"
