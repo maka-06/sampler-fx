@@ -356,9 +356,11 @@ class AudioController(app: Application) : AndroidViewModel(app) {
         startPolling()
     }
 
-    /** Relâche un pad (NOTE_OFF) - utile en mode gate. */
+    /** Relâche un pad (NOTE_OFF). N'agit qu'en mode gate : en one-shot/loop, lever
+     *  le doigt ne doit pas couper le son. */
     fun releasePad(pad: Int) {
-        NativeBridge.releasePad(pad)
+        val mode = _state.value.pads.getOrNull(pad)?.triggerMode ?: return
+        if (mode == Trigger.GATE) NativeBridge.releasePad(pad)
     }
 
     /** Sélectionne un pad : l'édition (waveform/trim/effets/export) cible ce sample. */
