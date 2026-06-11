@@ -14,6 +14,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
@@ -215,15 +219,15 @@ private fun AssignSampleDialog(
     onDismiss: () -> Unit
 ) {
     val options = library.samples
-    androidx.compose.material3.AlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Assigner un sample") },
         text = {
             if (options.isEmpty()) {
                 Text("Aucun sample dans la bibliothèque. Enregistre puis sauvegarde un son.")
             } else {
-                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    androidx.compose.foundation.lazy.items(options, key = { it.id }) { sample ->
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(options, key = { it.id }) { sample ->
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -245,7 +249,7 @@ private fun AssignSampleDialog(
         },
         confirmButton = {},
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Fermer") }
+            TextButton(onClick = onDismiss) { Text("Fermer") }
         }
     )
 }
